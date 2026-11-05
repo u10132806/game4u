@@ -10,6 +10,7 @@ drop that record rather than crash the submit loop. That's why the stats
 are "a good indication" rather than exact.
 """
 import os
+import threading
 import psycopg2
 
 SCHEMA = """
@@ -78,6 +79,9 @@ class SubmissionDB:
         self.max_rows = max_rows
         self.prune_every = prune_every
         self._writes = 0
+        # The submit loop and the /stats HTTP thread share one connection,
+        # so serialize access (this also keeps reconnects from racing).
+        self._lock = threading.RLock()
         self.conn = None
         self._connect()
         with self.conn.cursor() as cur:
@@ -98,15 +102,16 @@ class SubmissionDB:
 
     def _execute(self, fn):
         """Run fn(cursor); on a connection error, reconnect and retry once."""
-        for attempt in (1, 2):
-            try:
-                with self.conn.cursor() as cur:
-                    return fn(cur)
-            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-                if attempt == 2:
-                    raise
-                print(f"   ⚠️ DB connection lost ({e.__class__.__name__}), reconnecting...")
-                self._connect()
+        with self._lock:
+            for attempt in (1, 2):
+                try:
+                    with self.conn.cursor() as cur:
+                        return fn(cur)
+                except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                    if attempt == 2:
+                        raise
+                    print(f"   ⚠️ DB connection lost ({e.__class__.__name__}), reconnecting...")
+                    self._connect()
 
     def record(self, email, first_name, last_name, success, status_code, message):
         """Store one submission and bump the counters. Never raises."""
@@ -151,6 +156,26 @@ class SubmissionDB:
         except Exception as e:
             print(f"   ⚠️ DB stats read failed: {e}")
             return None
+
+    def totals(self, label=None):
+        """Lifetime totals from submission_stats: all run labels combined,
+        or just one label. Raises on DB errors (the caller reports them)."""
+        def q(cur):
+            cur.execute(
+                "SELECT COALESCE(SUM(total), 0), COALESCE(SUM(successes), 0), "
+                "COALESCE(SUM(failures), 0) FROM submission_stats "
+                "WHERE %(label)s::text IS NULL OR run_label = %(label)s",
+                {"label": label},
+            )
+            # SUM(bigint) comes back as Decimal; convert before doing math
+            total, ok, bad = (int(v) for v in cur.fetchone())
+            return {
+                "total": total,
+                "success": ok,
+                "failed": bad,
+                "success_rate": round(100.0 * ok / total, 2) if total else None,
+            }
+        return self._execute(q)
 
     def close(self):
         try:

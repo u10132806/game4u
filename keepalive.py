@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -20,8 +21,24 @@ STARTED_AT = datetime.now(timezone.utc)
 def start_http_server(replayer, port):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path.startswith("/healthz"):
+            parsed = urlparse(self.path)
+            status = 200
+            if parsed.path == "/healthz":
                 body, ctype = b"ok", "text/plain"
+            elif parsed.path == "/stats":
+                # Lifetime totals from Neon. ?label=render narrows to one run label.
+                label = parse_qs(parsed.query).get("label", [None])[0]
+                if replayer.db is None:
+                    status, data = 503, {"error": "database disabled (--no-db)"}
+                else:
+                    try:
+                        data = replayer.db.totals(label)
+                        if label:
+                            data = {"label": label, **data}
+                    except Exception as e:
+                        status, data = 503, {"error": f"database unavailable: {e.__class__.__name__}"}
+                body = json.dumps(data, indent=2).encode()
+                ctype = "application/json"
             else:
                 ok, bad = replayer.success_count, replayer.failure_count
                 total = ok + bad
@@ -37,7 +54,7 @@ def start_http_server(replayer, port):
                     },
                 }, indent=2).encode()
                 ctype = "application/json"
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
