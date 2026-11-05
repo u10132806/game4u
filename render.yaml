@@ -1,0 +1,19 @@
+# Render Blueprint: New -> Blueprint -> pick this repo.
+# Runs as a FREE web service. Free web services sleep after 15 min with no
+# inbound traffic, so --serve starts a small status page and pings itself
+# every 10 min to stay awake.
+services:
+  - type: web
+    name: sibforms-replayer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python submit.py -n inf --run-label render --serve
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false         # Render asks you to paste the Neon string on first deploy
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: PYTHONUNBUFFERED
+        value: "1"          # so prints show up in Render logs immediately
