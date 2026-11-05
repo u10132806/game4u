@@ -7,6 +7,7 @@ services:
     name: sibforms-replayer
     runtime: python
     plan: free
+    region: ohio            # same area as the Neon DB (aws us-east-2)
     buildCommand: pip install -r requirements.txt
     startCommand: python submit.py -n inf --run-label render --serve
     healthCheckPath: /healthz
