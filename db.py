@@ -70,7 +70,8 @@ WHERE id <= (
 
 class SubmissionDB:
     def __init__(self, dsn=None, run_label="default", max_rows=10_000, prune_every=100):
-        self.dsn = dsn or os.environ.get("DATABASE_URL")
+        # strip() guards against a trailing newline/space pasted into the env var
+        self.dsn = (dsn or os.environ.get("DATABASE_URL") or "").strip().strip('"\'')
         if not self.dsn:
             raise ValueError("DATABASE_URL is not set (put your Neon connection string in .env).")
         self.run_label = run_label
