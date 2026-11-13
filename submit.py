@@ -293,17 +293,33 @@ if __name__ == "__main__":
         db = None if args.no_db else SubmissionDB(run_label=args.run_label, max_rows=args.max_rows)
         replayer = SibFormsReplayer(har_file, db=db, csv_path=args.csv)
 
+        # Kill switch: submitting is OFF unless SUBMIT_ENABLED is set to a true value.
+        enabled = os.environ.get("SUBMIT_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
         if args.serve:
             from keepalive import start_http_server, start_self_ping
             start_http_server(replayer, int(os.environ.get("PORT", "10000")))
-            # Render sets RENDER_EXTERNAL_URL on web services automatically
+            # Render sets RENDER_EXTERNAL_URL on web services automatically.
+            # When disabled, skip the self-ping so the free instance can sleep.
             public_url = os.environ.get("RENDER_EXTERNAL_URL")
-            if public_url:
+            if enabled and public_url:
                 start_self_ping(public_url)
-            else:
+            elif enabled:
                 print("RENDER_EXTERNAL_URL not set; skipping self-ping.")
 
-        replayer.run(num_entries=num_entries)
+        if not enabled:
+            print("Submitting is DISABLED (set SUBMIT_ENABLED=true to turn it on). No requests will be sent.")
+            if args.serve:
+                # Stay up so /stats keeps working and Render doesn't restart-loop us.
+                try:
+                    while True:
+                        time.sleep(3600)
+                except KeyboardInterrupt:
+                    pass
+            if db:
+                db.close()
+        else:
+            replayer.run(num_entries=num_entries)
     except FileNotFoundError:
         print(f"Error: File '{har_file}' not found. Please place the HAR file in the same directory or update the path.")
     except Exception as e:
