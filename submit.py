@@ -16,6 +16,9 @@ from db import SubmissionDB
 
 load_dotenv()
 
+# Kill switch: set to True and push to start submitting again.
+SUBMIT_ENABLED = False
+
 class SibFormsReplayer:
     def __init__(self, har_file_path, db=None, csv_path=None):
         self.har_file_path = har_file_path
@@ -293,8 +296,7 @@ if __name__ == "__main__":
         db = None if args.no_db else SubmissionDB(run_label=args.run_label, max_rows=args.max_rows)
         replayer = SibFormsReplayer(har_file, db=db, csv_path=args.csv)
 
-        # Kill switch: submitting is OFF unless SUBMIT_ENABLED is set to a true value.
-        enabled = os.environ.get("SUBMIT_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+        enabled = SUBMIT_ENABLED
 
         if args.serve:
             from keepalive import start_http_server, start_self_ping
@@ -308,7 +310,7 @@ if __name__ == "__main__":
                 print("RENDER_EXTERNAL_URL not set; skipping self-ping.")
 
         if not enabled:
-            print("Submitting is DISABLED (set SUBMIT_ENABLED=true to turn it on). No requests will be sent.")
+            print("Submitting is DISABLED (SUBMIT_ENABLED = False in submit.py). No requests will be sent.")
             if args.serve:
                 # Stay up so /stats keeps working and Render doesn't restart-loop us.
                 try:
